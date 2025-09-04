@@ -50,7 +50,15 @@ export default function SavedScreen() {
           return cropName.toLowerCase().includes(query) || 
                  predictedClass.toLowerCase().includes(query);
         });
-        setFilteredResults(filtered);
+        
+        // Ensure filtered results are also sorted by timestamp (latest first)
+        const sortedFiltered = filtered.sort((a, b) => {
+          const dateA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const dateB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return dateB - dateA; // Descending order (latest first)
+        });
+        
+        setFilteredResults(sortedFiltered);
       }
     } catch (error) {
       console.error('Error filtering results:', error);
@@ -73,8 +81,15 @@ export default function SavedScreen() {
                  item.predicted_class;
         }) : [];
         
-        console.log('Valid results:', validResults);
-        setSavedResults(validResults);
+        // Sort results by timestamp in descending order (latest first)
+        const sortedResults = validResults.sort((a, b) => {
+          const dateA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const dateB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return dateB - dateA; // Descending order (latest first)
+        });
+        
+        console.log('Valid and sorted results:', sortedResults);
+        setSavedResults(sortedResults);
       } else {
         console.log('No saved results found');
         setSavedResults([]);
@@ -166,7 +181,7 @@ export default function SavedScreen() {
               </Text>
             </View>
           </View>
-          <Text style={[styles.savedDiseaseName, { color: getDiseaseColor(item.predicted_class) }]}>
+          <Text style={[styles.savedDiseaseName, { color: getDiseaseColor(item.predicted_class || '') }]}>
             {item.predicted_class || 'Unknown Disease'}
           </Text>
           <View style={styles.savedDetails}>
