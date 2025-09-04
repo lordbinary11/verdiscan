@@ -34,8 +34,8 @@ export default function ResultScreen() {
   
   // Parse result data from params or use mock data
   const [resultData, setResultData] = useState<PredictionResponse>({
-    plant_type: (Array.isArray(params.cropType) ? params.cropType[0] : params.cropType) || 'maize',
-    predicted_class: 'Corn Leaf Blight',
+    crop_type: (Array.isArray(params.cropType) ? params.cropType[0] : params.cropType) || 'maize',
+    predicted_disease: 'blight',
     confidence: 94.2,
     all_probabilities: {
       'Corn Leaf Blight': 94.2,
@@ -43,8 +43,12 @@ export default function ResultScreen() {
       'Gray Leaf Spot': 1.8,
       'Healthy': 0.9
     },
+    status: 'diseased',
     processing_time_ms: 2300,
     timestamp: new Date().toISOString(),
+    // Legacy fields for backward compatibility
+    plant_type: (Array.isArray(params.cropType) ? params.cropType[0] : params.cropType) || 'maize',
+    predicted_class: 'Corn Leaf Blight'
   });
 
   // Get image URI from params or from saved result data
@@ -243,12 +247,12 @@ export default function ResultScreen() {
   }, [params.savedResult, params.resultData]);
 
   // Get current disease info
-  const currentDiseaseInfo = diseaseDatabase[resultData.plant_type as keyof typeof diseaseDatabase]?.[resultData.predicted_class] || diseaseDatabase[resultData.plant_type as keyof typeof diseaseDatabase]?.['Healthy'];
+  const currentDiseaseInfo = diseaseDatabase[resultData.plant_type as keyof typeof diseaseDatabase]?.[resultData.predicted_class || ''] || diseaseDatabase[resultData.plant_type as keyof typeof diseaseDatabase]?.['Healthy'];
 
-  // Convert probabilities to array for display and convert decimals to percentages
+  // Convert probabilities to array for display and convert decimals to percentages with 2 decimal places
   const diseaseProbabilities: DiseaseProbability[] = Object.entries(resultData.all_probabilities)
     .map(([disease, probability]) => {
-      const convertedProb = typeof probability === 'number' ? Math.round(probability * 100) : probability;
+      const convertedProb = typeof probability === 'number' ? parseFloat((probability * 100).toFixed(2)) : probability;
       console.log(`Probability for ${disease}: original=${probability}, converted=${convertedProb}`);
       return {
         disease,
@@ -373,11 +377,11 @@ export default function ResultScreen() {
               <View 
                 style={[
                   styles.confidenceFill, 
-                  { width: `${Math.round(resultData.all_probabilities[resultData.predicted_class] * 100)}%` }
+                  { width: `${parseFloat(((resultData.all_probabilities[resultData.predicted_class || ''] || 0) * 100).toFixed(2))}%` }
                 ]} 
               />
               <Text style={styles.confidenceText}>
-                {Math.round(resultData.all_probabilities[resultData.predicted_class] * 100)}% Confidence
+                {((resultData.all_probabilities[resultData.predicted_class || ''] || 0) * 100).toFixed(2)}% Confidence
               </Text>
             </View>
           </View>
@@ -396,7 +400,7 @@ export default function ResultScreen() {
               <View style={styles.careTextContainer}>
                 <Text style={styles.careLabel}>Confidence</Text>
                 <Text style={styles.careValue}>
-                  {Math.round(resultData.all_probabilities[resultData.predicted_class] * 100)}%
+                  {((resultData.all_probabilities[resultData.predicted_class || ''] || 0) * 100).toFixed(2)}%
                 </Text>
               </View>
             </View>
@@ -429,7 +433,7 @@ export default function ResultScreen() {
                 <View key={index} style={styles.probabilityItem}>
                   <View style={styles.probabilityHeader}>
                     <Text style={styles.probabilityDisease}>{item.disease}</Text>
-                    <Text style={styles.probabilityValue}>{item.probability}%</Text>
+                    <Text style={styles.probabilityValue}>{item.probability.toFixed(2)}%</Text>
                   </View>
                   <View style={styles.probabilityBar}>
                     <View 
@@ -450,7 +454,7 @@ export default function ResultScreen() {
           {/* Disease Symptoms */}
           <View style={styles.symptomsSection}>
             <Text style={styles.sectionTitle}>Symptoms</Text>
-            {currentDiseaseInfo?.symptoms.map((symptom, index) => (
+            {currentDiseaseInfo?.symptoms.map((symptom: string, index: number) => (
               <View key={index} style={styles.symptomItem}>
                 <Ionicons name="alert-circle" size={wp(4)} color="#FF6B35" />
                 <Text style={styles.symptomText}>{symptom}</Text>
@@ -461,7 +465,7 @@ export default function ResultScreen() {
           {/* Treatment Recommendations */}
           <View style={styles.treatmentSection}>
             <Text style={styles.treatmentTitle}>Treatment Recommendations</Text>
-            {currentDiseaseInfo?.recommendations.map((recommendation, index) => (
+            {currentDiseaseInfo?.recommendations.map((recommendation: string, index: number) => (
               <View key={index} style={styles.treatmentItem}>
                 <Ionicons name="checkmark-circle" size={wp(4)} color="#4CAF50" />
                 <Text style={styles.treatmentText}>{recommendation}</Text>
