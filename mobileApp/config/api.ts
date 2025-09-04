@@ -4,7 +4,7 @@ export const API_CONFIG = {
   USE_MOCK_SERVICE: false,
   
   // FastAPI server URL - update this to your actual server
-  API_BASE_URL: 'http://10.42.0.62:8000',
+  API_BASE_URL: 'http://172.20.10.5:8000',
   
   // Alternative URLs for different environments
   // API_BASE_URL: 'http://192.168.1.100:8000', // Local network
@@ -14,11 +14,10 @@ export const API_CONFIG = {
   // API endpoints
   ENDPOINTS: {
     HEALTH: '/health',
-    MODEL_STATUS: '/models/status',
-    PREDICT_CASSAVA: '/predict/cassava',
-    PREDICT_MAIZE: '/predict/maize',
-    PREDICT_TOMATO: '/predict/tomato',
-    PREDICT_GENERIC: '/predict/{plant_type}',
+    DETECT_CASSAVA: '/detect/cassava',
+    DETECT_MAIZE: '/detect/maize',
+    DETECT_TOMATO: '/detect/tomato',
+    DETECT_AUTO: '/detect/auto',
   },
   
   // Request timeout in milliseconds

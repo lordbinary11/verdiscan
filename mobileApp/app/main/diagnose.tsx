@@ -92,7 +92,7 @@ export default function DiagnoseScreen() {
       console.log(`Starting disease detection for ${selectedCrop.name} (${selectedCrop.id})`);
       
       // Call the disease detection service
-      const result = await diseaseDetectionService.predictDisease(
+      const result = await diseaseDetectionService.detectDisease(
         selectedCrop.id as 'cassava' | 'maize' | 'tomato',
         imageUri
       );

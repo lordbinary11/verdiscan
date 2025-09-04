@@ -3,52 +3,104 @@ import { API_CONFIG, shouldUseMockService } from '../config/api';
 
 // Response types matching the FastAPI models
 export interface PredictionResponse {
-  plant_type: string;
-  predicted_class: string;
+  crop_type: string;
+  predicted_disease: string;
   confidence: number;
   all_probabilities: Record<string, number>;
+  status: string;
   image_path?: string;
   imageUri?: string; // Add imageUri for saved results
   processing_time_ms?: number;
   timestamp?: string;
+  
+  // Legacy fields for backward compatibility
+  plant_type?: string;
+  predicted_class?: string;
 }
 
 export interface HealthResponse {
   status: string;
-  message: string;
-  version: string;
+  models_loaded: number;
+  available_crops: string[];
+  message?: string;
+  version?: string;
 }
 
-export interface ModelStatusResponse {
-  cassava: {
-    loaded: boolean;
-    classes: string[];
-  };
-  maize: {
-    loaded: boolean;
-    classes: string[];
-  };
-  tomato: {
-    loaded: boolean;
-    classes: string[];
-  };
-}
 
 export interface DiseaseDetectionService {
   // Health check
   checkHealth(): Promise<HealthResponse>;
   
-  // Get model status
-  getModelStatus(): Promise<ModelStatusResponse>;
+  // Detect disease for specific crop
+  detectDisease(cropType: 'cassava' | 'maize' | 'tomato', imageUri: string): Promise<PredictionResponse>;
   
-  // Predict disease for specific crop
-  predictDisease(cropType: 'cassava' | 'maize' | 'tomato', imageUri: string): Promise<PredictionResponse>;
-  
-  // Generic prediction endpoint
-  predictGeneric(plantType: string, imageUri: string): Promise<PredictionResponse>;
+  // Auto-detect crop type and disease
+  detectAuto(imageUri: string): Promise<PredictionResponse>;
+}
+
+// Utility class for disease name formatting
+class DiseaseNameFormatter {
+  static formatDiseaseNameForDisplay(diseaseName: string): string {
+    // Convert snake_case API disease names to human-readable format
+    const diseaseNameMap: Record<string, string> = {
+      // Cassava diseases - matching exact disease database keys
+      'bacterial_blight': 'Bacterial Blight',
+      'brown_streak_disease': 'Cassava Brown Streak Disease',
+      'green_mottle': 'Green Mottle',
+      'mosaic_disease': 'Cassava Mosaic Disease',
+      'healthy': 'Healthy',
+      
+      // Maize diseases - matching exact disease database keys
+      'blight': 'Corn Leaf Blight',
+      'common_rust': 'Common Rust',
+      'gray_leaf_spot': 'Gray Leaf Spot',
+      
+      // Tomato diseases - matching exact disease database keys
+      'bacterial_spot': 'Bacterial Spot',
+      'early_blight': 'Early Blight',
+      'late_blight': 'Late Blight',
+      'leaf_mold': 'Leaf Mold',
+      'mosaic_virus': 'Mosaic Virus',
+      'septoria_spot': 'Septoria Spot',
+      'spider_mites': 'Spider Mites',
+      'target_spot': 'Target Spot',
+      'yellow_leaf_curl_virus': 'Yellow Leaf Curl Virus'
+    };
+    
+    return diseaseNameMap[diseaseName] || diseaseName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  }
+
+  static transformAllProbabilities(probabilities: Record<string, number>): Record<string, number> {
+    // Transform all probability keys from snake_case to human-readable format and round to 2 decimal places
+    const transformed: Record<string, number> = {};
+    for (const [key, value] of Object.entries(probabilities)) {
+      transformed[this.formatDiseaseNameForDisplay(key)] = Math.round(value * 100) / 100;
+    }
+    return transformed;
+  }
 }
 
 class DiseaseDetectionServiceImpl implements DiseaseDetectionService {
+
+  private transformResponse(response: any): PredictionResponse {
+    // Transform API response to match expected format
+    const formattedDiseaseName = DiseaseNameFormatter.formatDiseaseNameForDisplay(response.predicted_disease);
+    const formattedProbabilities = DiseaseNameFormatter.transformAllProbabilities(response.all_probabilities);
+    
+    return {
+      crop_type: response.crop_type,
+      predicted_disease: response.predicted_disease,
+      confidence: Math.round(response.confidence * 100) / 100,
+      all_probabilities: formattedProbabilities,
+      status: response.status,
+      // Add legacy fields for backward compatibility with human-readable names
+      plant_type: response.crop_type,
+      predicted_class: formattedDiseaseName,
+      processing_time_ms: response.processing_time_ms,
+      timestamp: response.timestamp || new Date().toISOString(),
+      imageUri: response.imageUri
+    };
+  }
   private async makeRequest<T>(
     endpoint: string, 
     method: 'GET' | 'POST' = 'GET', 
@@ -126,36 +178,16 @@ class DiseaseDetectionServiceImpl implements DiseaseDetectionService {
   }
 
   async checkHealth(): Promise<HealthResponse> {
-    return this.makeRequest<HealthResponse>('/health');
+    return this.makeRequest<HealthResponse>(API_CONFIG.ENDPOINTS.HEALTH);
   }
 
-  async testImageUpload(): Promise<{ supported: boolean; method: string }> {
-    try {
-      // Test with a simple base64 string to see what the server accepts
-      const testPayload = {
-        image: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', // 1x1 transparent PNG
-        crop_type: 'test'
-      };
-      
-      console.log('Testing JSON image upload support...');
-      await this.makeJsonRequest('/predict/cassava', 'POST', testPayload);
-      return { supported: true, method: 'json' };
-    } catch (error) {
-      console.log('JSON upload not supported, server expects FormData');
-      return { supported: false, method: 'formdata' };
-    }
-  }
 
-  async getModelStatus(): Promise<ModelStatusResponse> {
-    return this.makeRequest<ModelStatusResponse>('/models/status');
-  }
-
-  async predictDisease(
+  async detectDisease(
     cropType: 'cassava' | 'maize' | 'tomato', 
     imageUri: string
   ): Promise<PredictionResponse> {
     try {
-      console.log(`Starting disease prediction for ${cropType} with image: ${imageUri}`);
+      console.log(`Starting disease detection for ${cropType} with image: ${imageUri}`);
       
       // Convert image URI to blob and ensure proper formatting
       const response = await fetch(imageUri);
@@ -175,79 +207,84 @@ class DiseaseDetectionServiceImpl implements DiseaseDetectionService {
       
       // Prefer RN-friendly URI FormData entry to avoid Blob serialization issues
       const { fileName: rnFileName, mimeType: rnMimeType } = this.deriveFileMetaFromUri(imageUri, cropType, imageFile.type);
-      formData.append('image', { uri: imageUri, name: rnFileName, type: rnMimeType } as any);
+      formData.append('file', { uri: imageUri, name: rnFileName, type: rnMimeType } as any);
       console.log(`Appended RN file object to FormData: ${rnFileName}, type: ${rnMimeType}`);
       
-      console.log(`Sending image prediction request to /predict/${cropType}`);
-      const result = await this.makeRequest<PredictionResponse>(`/predict/${cropType}`, 'POST', formData);
+      // Get the appropriate endpoint
+      const endpoint = cropType === 'cassava' ? API_CONFIG.ENDPOINTS.DETECT_CASSAVA :
+                      cropType === 'maize' ? API_CONFIG.ENDPOINTS.DETECT_MAIZE :
+                      API_CONFIG.ENDPOINTS.DETECT_TOMATO;
       
-      console.log(`Prediction successful for ${cropType}:`, result);
+      console.log(`Sending image detection request to ${endpoint}`);
+      const apiResponse = await this.makeRequest<any>(endpoint, 'POST', formData);
+      
+      console.log(`Detection successful for ${cropType}:`, apiResponse);
+      const result = this.transformResponse(apiResponse);
+      result.imageUri = imageUri; // Preserve the original image URI
       return result;
       
     } catch (error) {
-      console.error(`Prediction failed for ${cropType}:`, error);
+      console.error(`Detection failed for ${cropType}:`, error);
       throw error;
     }
   }
 
-  async predictGeneric(plantType: string, imageUri: string): Promise<PredictionResponse> {
+  async detectAuto(imageUri: string): Promise<PredictionResponse> {
     try {
-      // Convert image URI to blob
+      console.log(`Starting auto-detection with image: ${imageUri}`);
+      
+      // Convert image URI to blob and ensure proper formatting
       const response = await fetch(imageUri);
       if (!response.ok) {
         throw new Error(`Failed to fetch image: ${response.status}`);
       }
       
       const blob = await response.blob();
+      console.log(`Image converted to blob, size: ${blob.size} bytes, type: ${blob.type}`);
       
-      // Try JSON payload first (most compatible with FastAPI)
-      try {
-        const base64Image = await this.imageUriToBase64(imageUri);
-        
-        const jsonPayload = {
-          image: base64Image,
-          crop_type: plantType
-        };
-        
-        return this.makeJsonRequest<PredictionResponse>(`/predict/${plantType}`, 'POST', jsonPayload);
-      } catch (base64Error) {
-        // Fallback to FormData with base64
-        try {
-          const base64Image = await this.blobToBase64(blob);
-          
-          const formData = new FormData();
-          formData.append('image', base64Image);
-          
-          return this.makeRequest<PredictionResponse>(`/predict/${plantType}`, 'POST', formData);
-        } catch (formDataError) {
-          // Final fallback to blob upload
-          const formData = new FormData();
-          
-          // Determine file extension and MIME type
-          let fileName = 'leaf_image.jpg';
-          let mimeType = 'image/jpeg';
-          
-          if (blob.type) {
-            if (blob.type.includes('png')) {
-              fileName = 'leaf_image.png';
-              mimeType = 'image/png';
-            } else if (blob.type.includes('jpeg') || blob.type.includes('jpg')) {
-              fileName = 'leaf_image.jpg';
-              mimeType = 'image/jpeg';
+      // Create a properly formatted file for upload
+      const imageFile = await this.createImageFile(blob, 'auto');
+      console.log(`Created image file: ${imageFile instanceof File ? imageFile.name : 'blob'}, type: ${imageFile.type}, size: ${imageFile.size}`);
+      
+      // Create FormData for React Native compatibility
+      const formData = new FormData();
+      
+      // Prefer RN-friendly URI FormData entry to avoid Blob serialization issues
+      const { fileName: rnFileName, mimeType: rnMimeType } = this.deriveFileMetaFromUri(imageUri, 'auto', imageFile.type);
+      formData.append('file', { uri: imageUri, name: rnFileName, type: rnMimeType } as any);
+      console.log(`Appended RN file object to FormData: ${rnFileName}, type: ${rnMimeType}`);
+      
+      console.log(`Sending image auto-detection request to ${API_CONFIG.ENDPOINTS.DETECT_AUTO}`);
+      const apiResponse = await this.makeRequest<any>(API_CONFIG.ENDPOINTS.DETECT_AUTO, 'POST', formData);
+      
+      console.log(`Auto-detection successful:`, apiResponse);
+      
+      // Find the result with the highest confidence
+      let bestResult = null;
+      let highestConfidence = 0;
+      
+      if (apiResponse.results) {
+        for (const [cropType, result] of Object.entries(apiResponse.results)) {
+          if (result && typeof result === 'object' && 'confidence' in result) {
+            const confidence = (result as any).confidence;
+            if (confidence > highestConfidence) {
+              highestConfidence = confidence;
+              bestResult = result;
             }
           }
-          
-          // Create a new blob with explicit MIME type
-          const imageBlob = new Blob([blob], { type: mimeType });
-          
-          // Append with proper filename and MIME type
-          formData.append('image', imageBlob, fileName);
-          
-          return this.makeRequest<PredictionResponse>(`/predict/${plantType}`, 'POST', formData);
         }
       }
+      
+      if (!bestResult) {
+        throw new Error('No valid prediction found in auto-detection response');
+      }
+      
+      const transformedResult = this.transformResponse(bestResult);
+      transformedResult.imageUri = imageUri; // Preserve the original image URI
+      return transformedResult;
+      
     } catch (error) {
-      console.error(`Generic prediction failed for ${plantType}:`, error);
+      console.error(`Auto-detection failed:`, error);
       throw error;
     }
   }
@@ -426,56 +463,47 @@ export class MockDiseaseDetectionService implements DiseaseDetectionService {
     
     return {
       status: 'healthy',
+      models_loaded: 3,
+      available_crops: ['cassava', 'maize', 'tomato'],
       message: 'Plant Disease Detection API is running',
       version: '1.0.0'
     };
   }
 
-  async getModelStatus(): Promise<ModelStatusResponse> {
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    return {
-      cassava: {
-        loaded: true,
-        classes: ['Cassava Mosaic Disease', 'Cassava Brown Streak Disease', 'Green Mottle', 'Healthy']
-      },
-      maize: {
-        loaded: true,
-        classes: ['Corn Leaf Blight', 'Common Rust', 'Gray Leaf Spot', 'Healthy']
-      },
-      tomato: {
-        loaded: true,
-        classes: ['Early Blight', 'Late Blight', 'Bacterial Spot', 'Leaf Mold', 'Mosaic Virus', 'Septoria Leaf Spot', 'Spider Mites', 'Target Spot', 'Yellow Leaf Curl Virus', 'Healthy']
-      }
-    };
-  }
 
-  async predictDisease(
+  async detectDisease(
     cropType: 'cassava' | 'maize' | 'tomato', 
     imageUri: string
   ): Promise<PredictionResponse> {
     // Simulate processing time
     await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 1000));
     
-    // Mock predictions based on crop type
+    // Mock predictions based on crop type - matching exact API class names
     const mockPredictions = {
       cassava: {
-        'Cassava Mosaic Disease': 85.2,
-        'Cassava Brown Streak Disease': 8.1,
-        'Green Mottle': 4.2,
-        'Healthy': 2.5
+        'mosaic_disease': 85.2,
+        'brown_streak_disease': 8.1,
+        'green_mottle': 4.2,
+        'bacterial_blight': 1.0,
+        'healthy': 2.5
       },
       maize: {
-        'Corn Leaf Blight': 94.2,
-        'Common Rust': 3.1,
-        'Gray Leaf Spot': 1.8,
-        'Healthy': 0.9
+        'blight': 94.2,
+        'common_rust': 3.1,
+        'gray_leaf_spot': 1.8,
+        'healthy': 0.9
       },
       tomato: {
-        'Early Blight': 78.5,
-        'Late Blight': 12.3,
-        'Bacterial Spot': 6.8,
-        'Healthy': 2.4
+        'early_blight': 78.5,
+        'late_blight': 12.3,
+        'bacterial_spot': 6.8,
+        'leaf_mold': 1.2,
+        'mosaic_virus': 0.8,
+        'septoria_spot': 0.5,
+        'spider_mites': 0.3,
+        'target_spot': 0.2,
+        'yellow_leaf_curl_virus': 0.1,
+        'healthy': 2.4
       }
     };
 
@@ -484,22 +512,36 @@ export class MockDiseaseDetectionService implements DiseaseDetectionService {
       predictions[a as keyof typeof predictions] > predictions[b as keyof typeof predictions] ? a : b
     );
 
+    // Use the formatter utility to convert disease names for display
+    const formattedDiseaseName = DiseaseNameFormatter.formatDiseaseNameForDisplay(predictedClass);
+    const formattedProbabilities = DiseaseNameFormatter.transformAllProbabilities(predictions);
+
     return {
+      crop_type: cropType,
+      predicted_disease: predictedClass,
+      confidence: Math.round(predictions[predictedClass as keyof typeof predictions] * 100) / 100,
+      all_probabilities: formattedProbabilities,
+      status: predictedClass === 'healthy' ? 'healthy' : 'diseased',
+      processing_time_ms: Math.round((2000 + Math.random() * 1000) * 100) / 100,
+      timestamp: new Date().toISOString(),
+      // Legacy fields for backward compatibility with human-readable names
       plant_type: cropType,
-      predicted_class: predictedClass,
-      confidence: predictions[predictedClass as keyof typeof predictions],
-      all_probabilities: predictions,
-      processing_time_ms: 2000 + Math.random() * 1000,
-      timestamp: new Date().toISOString()
+      predicted_class: formattedDiseaseName
     };
   }
 
-  async predictGeneric(plantType: string, imageUri: string): Promise<PredictionResponse> {
-    if (plantType === 'cassava' || plantType === 'maize' || plantType === 'tomato') {
-      return this.predictDisease(plantType as 'cassava' | 'maize' | 'tomato', imageUri);
-    }
+  async detectAuto(imageUri: string): Promise<PredictionResponse> {
+    // Simulate processing time for auto-detection
+    await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 1000));
     
-    throw new Error(`Unsupported plant type: ${plantType}`);
+    // Randomly select a crop type for auto-detection simulation
+    const cropTypes: ('cassava' | 'maize' | 'tomato')[] = ['cassava', 'maize', 'tomato'];
+    const randomCropType = cropTypes[Math.floor(Math.random() * cropTypes.length)];
+    
+    console.log(`Mock auto-detection selected crop type: ${randomCropType}`);
+    
+    // Use the existing detectDisease method with the randomly selected crop
+    return this.detectDisease(randomCropType, imageUri);
   }
 }
 
@@ -511,3 +553,9 @@ export const diseaseDetectionService: DiseaseDetectionService = shouldUseMockSer
 // Export individual services for manual switching
 export const mockDiseaseDetectionService: DiseaseDetectionService = new MockDiseaseDetectionService();
 export const realDiseaseDetectionService: DiseaseDetectionService = new DiseaseDetectionServiceImpl();
+
+// Export the formatter utility for use in other components
+export { DiseaseNameFormatter };
+
+
+

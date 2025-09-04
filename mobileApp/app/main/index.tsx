@@ -20,42 +20,42 @@ const diseaseData = [
     id: '1',
     name: 'Cassava Mosaic Disease',
     description: 'A viral disease that causes yellow mosaic patterns on cassava leaves, reducing yield significantly.',
-    image: require('../../assets/images/step.jpg'),
+    image: require('../../assets/images/mosaic.jpg'),
     category: 'Cassava'
   },
   {
     id: '2',
     name: 'Cassava Brown Streak Disease',
     description: 'A devastating viral disease that causes brown streaks in cassava roots and yellowing of leaves.',
-    image: require('../../assets/images/step1.jpg'),
+    image: require('../../assets/images/brown.jpg'),
     category: 'Cassava'
   },
   {
     id: '3',
     name: 'Maize Rust',
     description: 'A fungal disease that causes reddish-brown pustules on maize leaves, stems, and ears.',
-    image: require('../../assets/images/step2.png'),
+    image: require('../../assets/images/rust.jpeg'),
     category: 'Maize'
   },
   {
     id: '4',
     name: 'Maize Leaf Blight',
     description: 'A fungal disease that causes large, tan to brown lesions on maize leaves, reducing photosynthesis.',
-    image: require('../../assets/images/step3.jpg'),
+    image: require('../../assets/images/blight.jpg'),
     category: 'Maize'
   },
   {
     id: '5',
     name: 'Tomato Early Blight',
     description: 'A fungal disease that causes dark brown spots with concentric rings on tomato leaves and stems.',
-    image: require('../../assets/images/leaf.png'),
+    image: require('../../assets/images/early.jpeg'),
     category: 'Tomato'
   },
   {
     id: '6',
     name: 'Tomato Late Blight',
     description: 'A destructive disease that causes water-soaked lesions on tomato leaves, stems, and fruits.',
-    image: require('../../assets/images/leaf2.png'),
+    image: require('../../assets/images/late.jpeg'),
     category: 'Tomato'
   }
 ];

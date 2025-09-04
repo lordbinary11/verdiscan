@@ -1,1 +1,0 @@
-# Cassava, Maize, and Tomato Disease Detection Project
